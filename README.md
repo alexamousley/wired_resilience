@@ -14,8 +14,7 @@ pip install numpy pandas scipy scikit-learn statsmodels pingouin matplotlib seab
 
 ## Data
 
-ABCD data are not included in this repository: access is available through the [NIMH Data Archive](https://nda.nih.gov/abcd). This repository includes randomized data (in /example_data) that cane
-be used to run all scripts.
+ABCD data are not included in this repository: all  data is accessible on the NBDC Data Hub (https://www.nbdc-datahub.org/). This repository includes randomized data (/example_data) that can be used to run all scripts.
 
 ## Code
 
@@ -24,11 +23,11 @@ All functions are in `A_functions.py` and paths are set in `A_config.py`.
 The scripts are alphabetized based on the order that they appear in the manuscript:
 
 - B_sample_diversity: Basic relationships between adversity, mental health, and polygenic scores
-- C_connectome_descritives: Visualization of network properties
-- D_run_PLSes
-- E_overlap_analysis
-- F_mediation_and_sliding_scale
-- G_heterogenous_profile_mathced
+- C_connectome_descriptives: Visualization of network properties
+- D_run_PLSes: Run 3 seperate PLS models between domains (Y) and edges (X)
+- E_overlap_analysis: Explore overlapping edges between PLSes and define risk- and health-aligned edges
+- F_mediation_and_sliding_scale: Explore edge score mediation and sliding scale across adversity
+- G_heterogenous_profile_mathced: Define 4 matched groups of to explore risk- and health-aligned edge differences between resilient and vulnerable children
 
 ## Data definitions
 
@@ -41,5 +40,5 @@ The scripts are alphabetized based on the order that they appear in the manuscri
 ---
 
 Note: Claude was used to help clean up this repository and create example data. All scripts were re-run
-with original data to ensure all outputs were accurate, but give this is my first attempt to use AI for
-code publication, please do let me know if something catches your eye!
+with original data to ensure all outputs were accurate, but this is my first attempt to use AI for
+code publication, so please do let me know if something catches your eye!
