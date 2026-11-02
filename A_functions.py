@@ -1385,11 +1385,10 @@ def bsr_permutations_overlap(target, others, nnodes, n_edges,
         print(f"    p = {pval:.4f} → overlap is not significant")
         print("\n")
 
-def plot_aligned_edge_example(aligned_mask, matrices, matrix_names,
-                              plot_args,
-                              save_name='aligned_edge_example.pdf',
-                              flip=None):
-    "Plot largest (in weight) risk- and health- aligned edges."
+def plot_aligned_edge_example(aligned_mask, matrices, matrix_names, plot_args,
+                              risk_edge=None, health_edge=None,
+                              save_name='aligned_edge_example.pdf', flip=None):
+    "Plot two specific edges as examples of risk-aligned and health-aligned edges. "
 
     pos_color = "#184d18"   # Risk-aligned
     neg_color = "#a73685"   # Health-aligned
@@ -1399,67 +1398,71 @@ def plot_aligned_edge_example(aligned_mask, matrices, matrix_names,
     lh_vertices = plot_args['lh_vertices']
     rh_vertices = plot_args['rh_vertices']
     save_path = plot_args['save_path']
- 
+
+    if risk_edge is None and health_edge is None:
+        raise ValueError("Give at least one of risk_edge or health_edge.")
     flip = [] if flip is None else list(flip)
-    unknown = [f for f in flip if f not in matrix_names]
-    if unknown:
-        raise ValueError(f"Names in `flip` not found in `matrix_names`: {unknown}")
- 
-    nnodes = aligned_mask.shape[0]
-    iu = np.triu_indices(nnodes, k=1)
-    alignment = np.asarray(aligned_mask)[iu]
- 
-    if np.count_nonzero(alignment) == 0:
-        raise ValueError("No sign-aligned overlapping edges — nothing to plot.")
- 
+
+    aligned_mask = np.asarray(aligned_mask)
+    iu = np.triu_indices(aligned_mask.shape[0], k=1)
+    alignment = aligned_mask[iu]
+
     # Sign-adjusted combined weight (flipped matrices reversed so all point the same way)
-    combined = np.zeros_like(matrices[0], dtype=float)
-    for name, m in zip(matrix_names, matrices):
-        combined += np.asarray(m) * (-1 if name in flip else 1)
-    tri_vals = combined[iu]
- 
-    combined_label = matrix_names[0] if matrix_names[0] not in flip else f"-{matrix_names[0]}"
-    for name in matrix_names[1:]:
-        combined_label += f" - {name}" if name in flip else f" + {name}"
- 
-    def pick(direction):
-        "Largest-magnitude edge among aligned edges of the given direction (+1 / -1)."
-        candidates = np.where(alignment == direction)[0]
-        if candidates.size == 0:
-            return None
-        best = candidates[np.argmax(np.abs(tri_vals[candidates]))]
-        i, j = iu[0][best], iu[1][best]
-        # +1 offset: node i (0-indexed) -> region_labels[i+1]
-        return i, j, region_labels[i + 1], region_labels[j + 1], combined[i, j]
- 
-    risk_edge = pick(1)
-    health_edge = pick(-1)
- 
-    for label, edge in [('Risk-aligned', risk_edge), ('Health-aligned', health_edge)]:
-        if edge is None:
-            print(f"\nWarning: no {label} edges found in this mask.")
+    combined = sum(np.asarray(m) * (-1 if name in flip else 1)
+                   for name, m in zip(matrix_names, matrices))
+    combined_label = " ".join(
+        (('-' if name in flip else '+') if k else ('-' if name in flip else '')) + name
+        for k, name in enumerate(matrix_names)).replace('+', '+ ').replace(' -', ' - ')
+
+    # Region name -> node (region_labels is 0-indexed in matrix order; spaces ignored)
+    node_of = {str(name).replace(' ', ''): i for i, name in enumerate(region_labels)}
+
+    def find_node(name):
+        key = name.replace(' ', '')
+        if key not in node_of:
+            raise KeyError(f"Region '{name}' not found in region_labels.")
+        return node_of[key]
+
+    # Look up and describe each chosen edge
+    edges = []
+    for wanted, label, color in [(1, risk_edge, pos_color), (-1, health_edge, neg_color)]:
+        if label is None:
             continue
-        i, j, region_i, region_j, val = edge
-        print(f"\nLargest {label} edge: node {i} <-> node {j}")
-        print(f"Regions: {region_i}  <->  {region_j}")
-        print(f"Combined weight ({combined_label}): {val:.4f}")
+        kind = 'Risk-aligned' if wanted > 0 else 'Health-aligned'
+        i, j = find_node(label[0]), find_node(label[1])
+        actual = aligned_mask[i, j]
+
+        print(f"\n{kind} edge (chosen): node {i} <-> node {j}")
+        print(f"Regions: {region_labels[i]}  <->  {region_labels[j]}")
+
+        if actual == 0:
+            print("WARNING: this edge is not an aligned edge in this mask.")
+        else:
+            actual_kind = 'Risk-aligned' if actual > 0 else 'Health-aligned'
+            if actual != wanted:
+                print(f"WARNING: this edge is {actual_kind}, not {kind}.")
+            # Rank / percentile among aligned edges of the edge's actual direction
+            same = np.abs(combined[iu][alignment == actual])
+            w = abs(combined[i, j])
+            rank = int((same > w).sum()) + 1
+            pct = (same <= w).mean() * 100
+            print(f"Rank {rank} of {same.size} {actual_kind} edges ({pct:.1f}th percentile)")
+
+        print(f"Combined weight ({combined_label}): {combined[i, j]:.4f}")
         for name, m in zip(matrix_names, matrices):
             print(f"  {name}: {m[i, j]:.4f}")
- 
-    # Plot both edges and only their endpoint nodes
+
+        edges.append((i, j, color))
+
+    # Plot the chosen edges and their endpoint nodes
     node_size = 300
     edge_width = 9
- 
+
     plt.figure(figsize=(10, 8))
-    plt.scatter(lh_vertices[:, 1], lh_vertices[:, 2], c='grey', s=1, alpha=0.08,
-                rasterized=True)
-    plt.scatter(rh_vertices[:, 1], rh_vertices[:, 2], c='grey', s=1, alpha=0.08,
-                rasterized=True)
- 
-    for edge, color in [(risk_edge, pos_color), (health_edge, neg_color)]:
-        if edge is None:
-            continue
-        i, j = edge[0], edge[1]
+    plt.scatter(lh_vertices[:, 1], lh_vertices[:, 2], c='grey', s=1, alpha=0.08, rasterized=True)
+    plt.scatter(rh_vertices[:, 1], rh_vertices[:, 2], c='grey', s=1, alpha=0.08, rasterized=True)
+
+    for i, j, color in edges:
         plt.plot([atlas_coords[i, 1], atlas_coords[j, 1]],
                  [atlas_coords[i, 2], atlas_coords[j, 2]],
                  color=color, alpha=0.9, linewidth=edge_width,
@@ -1468,19 +1471,20 @@ def plot_aligned_edge_example(aligned_mask, matrices, matrix_names,
                     [atlas_coords[i, 2], atlas_coords[j, 2]],
                     s=node_size, c=color, alpha=1, edgecolors='black',
                     linewidths=1, zorder=5, rasterized=True)
- 
+
     plt.axis('off')
     plt.gca().set_aspect('equal')
- 
-    legend_elements = [
-        Line2D([0], [0], color=pos_color, lw=edge_width,
-               marker='o', markersize=12, markeredgecolor='black',
-               label='Risk-aligned'),
-        Line2D([0], [0], color=neg_color, lw=edge_width,
-               marker='o', markersize=12, markeredgecolor='black',
-               label='Health-aligned'),
-    ]
-    plt.legend(handles=legend_elements, loc='upper right', frameon=False)
+
+    # Legend: only the edge types plotted
+    legend = []
+    if risk_edge is not None:
+        legend.append(Line2D([0], [0], color=pos_color, lw=edge_width, marker='o',
+                             markersize=12, markeredgecolor='black', label='Risk-aligned'))
+    if health_edge is not None:
+        legend.append(Line2D([0], [0], color=neg_color, lw=edge_width, marker='o',
+                             markersize=12, markeredgecolor='black', label='Health-aligned'))
+    plt.legend(handles=legend, loc='upper right', frameon=False)
+
     plt.savefig(os.path.join(save_path, save_name), dpi=600, bbox_inches='tight')
     plt.show()
 
@@ -1708,8 +1712,7 @@ def edge_group_plots(connectomes, aligned_overlap_masks, edge_group_scores, save
     VLIM      = 0.02        # |weight| at/above this is fully opaque in the heatmap
     ZERO_EPS  = 1e-8        # |weight| <= this counts as "absent"
     SCORE_COLORS = {'M&G Edges': '#3D2A30', 'M&A Edges': '#BEA4AD', 'A&G Edges': '#9A6B79'}
-    GROUP_ORDER = ['M&A', 'A&G', 'M&G']   # plotting order for heatmap rows and histograms
-
+    GROUP_ORDER = ['M&A Edges', 'A&G Edges', 'M&G Edges']   # top -> bottom
     if group_labels is None:
         group_labels = {
             'Mental Health & Genetics':  'M&G Edges',
@@ -1754,9 +1757,7 @@ def edge_group_plots(connectomes, aligned_overlap_masks, edge_group_scores, save
     ordered_keys = sorted(group_info, key=lambda k: GROUP_ORDER.index(group_info[k]['label'])
                           if group_info[k]['label'] in GROUP_ORDER else len(GROUP_ORDER))
     
-    # =========================================================================
     # 1) One participant's heatmap
-    # =========================================================================
     pid = int(participant)
     if not 0 <= pid < n_subjects:
         raise ValueError(f"participant {pid} is out of range (0-{n_subjects - 1}).")
@@ -1807,9 +1808,7 @@ def edge_group_plots(connectomes, aligned_overlap_masks, edge_group_scores, save
                     dpi=600, bbox_inches='tight')
         plt.show()
  
-    # =========================================================================
     # 2) Participant's connection-weight histograms per edge group
-    # =========================================================================
     for key in ordered_keys:
         info = group_info[key]
         label = info['label']
@@ -1829,7 +1828,7 @@ def edge_group_plots(connectomes, aligned_overlap_masks, edge_group_scores, save
                 label=f'Risk-aligned ({w_pos.size:,} out of {info["pos_ids"].size:,})')
         ax.hist(w_neg, bins=bins, color=NEG_COLOR, alpha=0.5, rasterized=True,
                 label=f'Health-aligned ({w_neg.size:,} out of {info["neg_ids"].size:,})')
-        ax.set_xlabel('Connection Weight', fontsize=25)
+        ax.set_xlabel('Edge Weight', fontsize=25)
         ax.set_ylabel('Frequency', fontsize=25)
         ax.tick_params(axis='both', labelsize=20)
         ax.spines[['top', 'right']].set_visible(False)
@@ -1839,9 +1838,7 @@ def edge_group_plots(connectomes, aligned_overlap_masks, edge_group_scores, save
                     dpi=600, bbox_inches='tight')
         plt.show()
  
-    # =========================================================================
     # 3) Summary score histograms across participants
-    # =========================================================================
     for key in ordered_keys:
         info = group_info[key]
         info = group_info[key]
